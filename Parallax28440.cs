@@ -1,6 +1,7 @@
 using System;
 using System.IO.Ports;
 using Microsoft.SPOT;
+using System.Threading;
 
 namespace BioNex.NETMF
 {
@@ -79,14 +80,39 @@ namespace BioNex.NETMF
 
         private byte[] WriteCommandBytes( byte[] bytes, byte expected_return_bytes)
         {
-            _port.Flush();
+            // testing -- don't flush anymore so I can find the issue with the data getting shifted
+            //_port.Flush();
+
             // write the header first
             _port.Write( new byte[] { (byte)'!', (byte)'R', (byte)'W' }, 0, 3 );
             // now write the user-requested data
             _port.Write( bytes, 0, bytes.Length);
-            byte[] temp = new byte[expected_return_bytes]; // max of 12 bytes returned by reader
+
+            // testing -- read everything from the serial port
+            System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+            sw.Start();
+            const int max_timeout_ms = 250;
+            while( _port.BytesToRead < expected_return_bytes && sw.ElapsedMilliseconds < max_timeout_ms)
+                System.Threading.Thread.Sleep( 10);
+            // bail if we don't get enough data back
+            if( sw.ElapsedMilliseconds >= max_timeout_ms) {
+                _port.Flush();
+                throw new RFIDException( "Did not get enough data back from the RFID reader");
+            }
+
+            // wait until we (think we) don't get any more data from the reader
+            int last_num_bytes_available = _port.BytesToRead;
+            Thread.Sleep( 25);
+            while( last_num_bytes_available != _port.BytesToRead) {
+                last_num_bytes_available = _port.BytesToRead;
+                Thread.Sleep( 25);
+            }
+
+            byte actual_bytes_available = (byte)_port.BytesToRead;
+
+            byte[] temp = new byte[actual_bytes_available ]; // max of 12 bytes returned by reader
             System.Threading.Thread.Sleep( 250);
-            _port.Read(temp, 0, expected_return_bytes);
+            _port.Read(temp, 0, actual_bytes_available);
             NumberConversions.PrintByteArray( temp);
             return temp;
         }
